@@ -1257,6 +1257,21 @@
         <span style="font-size:13px;font-weight:600">Garçom:</span>
         <select class="pedido-garcom-select" id="pedido-garcom-select"></select>
       </div>
+      <div id="pedido-extra-fields" style="display:none">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <div class="form-group" style="margin:0">
+            <label class="form-label">📍 Endereço</label>
+            <input class="form-input" id="pedido-endereco" placeholder="Rua, número...">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">🛵 Código iFood</label>
+            <input class="form-input" id="pedido-ifood" placeholder="#ABC-123">
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-secondary btn-sm" id="btn-toggle-extra" onclick="toggleExtraFields()" style="margin-bottom:10px;font-size:11px">
+        📍 + Endereço / iFood
+      </button>
       <div id="pedido-cardapio"></div>
 
       <div style="margin:8px 0">
@@ -1295,14 +1310,8 @@
         <input class="form-input" id="nova-mesa-id" placeholder="Ex: João, Mesa 3, Delivery..." autofocus>
       </div>
       <input type="hidden" id="nova-mesa-num" value="0">
-      <div class="form-group">
-        <label class="form-label">Endereço (opcional)</label>
-        <input class="form-input" id="nova-mesa-endereco" placeholder="Ex: Rua das Flores, 123 — Apto 2">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Código iFood (opcional)</label>
-        <input class="form-input" id="nova-mesa-ifood" placeholder="Ex: #ABC-123">
-      </div>
+      <input type="hidden" id="nova-mesa-endereco" value="">
+      <input type="hidden" id="nova-mesa-ifood" value="">
       <div class="form-group">
         <label class="form-label">Garçom</label>
         <select class="form-input" id="nova-mesa-garcom"></select>
@@ -1652,6 +1661,14 @@ function criarMesa() {
   toast(`Comanda de ${label} aberta!`, 'success');
 }
 
+function toggleExtraFields() {
+  const el = document.getElementById('pedido-extra-fields');
+  const btn = document.getElementById('btn-toggle-extra');
+  const showing = el.style.display !== 'none';
+  el.style.display = showing ? 'none' : 'block';
+  btn.textContent = showing ? '📍 + Endereço / iFood' : '✕ Fechar';
+}
+
 function abrirMesa(mesaId) {
   mesaAtual = mesaId;
   const mesa = dadosMesas[mesaId];
@@ -1661,6 +1678,12 @@ function abrirMesa(mesaId) {
   document.getElementById('modal-pedido-titulo').textContent = `${mesa.label || ('Mesa ' + mesa.num)}`;
   document.getElementById('modal-pedido-sub').textContent = mesa.garcom ? `Garçom: ${mesa.garcom}` : 'Selecione o garçom';
   document.getElementById('pedido-obs').value = '';
+  document.getElementById('pedido-endereco').value = mesa.endereco || '';
+  document.getElementById('pedido-ifood').value = mesa.ifood || '';
+  // Mostrar campos extras se já tiver endereço ou ifood
+  const temExtra = mesa.endereco || mesa.ifood;
+  document.getElementById('pedido-extra-fields').style.display = temExtra ? 'block' : 'none';
+  document.getElementById('btn-toggle-extra').textContent = temExtra ? '✕ Fechar' : '📍 + Endereço / iFood';
 
   // Selecionar garçom atual
   renderSelectsGarcon('pedido-garcom-select', mesa.garcom);
@@ -1760,6 +1783,8 @@ function enviarPedido() {
 
   const garcom = document.getElementById('pedido-garcom-select').value;
   const obs = document.getElementById('pedido-obs').value.trim();
+  const endereco = document.getElementById('pedido-endereco').value.trim();
+  const ifood = document.getElementById('pedido-ifood').value.trim();
   const pedidoId = uid();
   const itensObj = {};
   carrinhoAtual.forEach(it => {
@@ -1779,6 +1804,8 @@ function enviarPedido() {
   updates[`mesas/${mesaAtual}/pedidos/${pedidoId}`] = pedido;
   updates[`mesas/${mesaAtual}/status`] = 'aguardando';
   updates[`mesas/${mesaAtual}/garcom`] = garcom;
+  if (endereco) updates[`mesas/${mesaAtual}/endereco`] = endereco;
+  if (ifood) updates[`mesas/${mesaAtual}/ifood`] = ifood;
 
   db.ref().update(updates).then(() => {
     toast('✅ Pedido enviado para a cozinha!', 'success');
@@ -2159,29 +2186,19 @@ function salvarConfigImpressao() {
 }
 
 function buildTicket(lines) {
-  // ESC/P commands para impressoras térmicas
-  const ESC = '\x1B';
-  const GS  = '\x1D';
-  const LF  = '\n';
-  const BOLD_ON  = ESC + 'E\x01';
-  const BOLD_OFF = ESC + 'E\x00';
-  const CENTER   = ESC + 'a\x01';
-  const LEFT     = ESC + 'a\x00';
-  const CUT      = GS  + 'V\x01';
-  const BIG      = GS  + '!\x11'; // dupla altura+largura
-  const NORMAL   = GS  + '!\x00';
-
-  let txt = CENTER + BOLD_ON + BIG;
   const cfg = getImpCfg();
-  txt += (cfg.header || 'Casa da Tia Tonha') + LF;
-  txt += NORMAL + BOLD_OFF + 'Batata Recheada' + LF;
-  txt += '================================' + LF;
-  txt += LEFT;
-  lines.forEach(l => { txt += l + LF; });
-  txt += '================================' + LF;
-  txt += CENTER + (cfg.footer || 'Obrigada pela visita! 🥔') + LF;
-  txt += LF + LF + LF;
-  txt += CUT;
+  const header = cfg.header || 'Casa da Tia Tonha';
+  const footer = cfg.footer || 'Obrigada pela visita!';
+  const SEP = '--------------------------------';
+
+  let txt = '';
+  txt += header + '\n';
+  txt += 'Batata Recheada\n';
+  txt += SEP + '\n';
+  lines.forEach(l => { txt += l + '\n'; });
+  txt += SEP + '\n';
+  txt += footer + '\n';
+  txt += '\n\n\n';
   return txt;
 }
 
