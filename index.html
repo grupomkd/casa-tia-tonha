@@ -1186,6 +1186,11 @@
         <strong>Compatível com:</strong> Epson TM, Star TSP, POS-58, POS-80 e similares
       </div>
       <div class="form-group">
+        <label class="form-label">IP da impressora na rede (Server for RawBT)</label>
+        <input class="form-input" id="cfg-printer-ip" value="192.168.0.119" placeholder="192.168.0.119">
+        <div style="font-size:11px;color:var(--texto-suave);margin-top:4px">IP do celular com o Server for RawBT ligado · porta 9100</div>
+      </div>
+      <div class="form-group">
         <label class="form-label">Largura da impressora</label>
         <select class="form-input" id="cfg-printer-width">
           <option value="58">58mm (POS-58)</option>
@@ -1455,6 +1460,7 @@ window.addEventListener('DOMContentLoaded', () => {
   if (impCfg.header) document.getElementById('cfg-header').value = impCfg.header;
   if (impCfg.footer) document.getElementById('cfg-footer').value = impCfg.footer;
   if (impCfg.width) document.getElementById('cfg-printer-width').value = impCfg.width;
+  if (impCfg.printerIp) document.getElementById('cfg-printer-ip').value = impCfg.printerIp;
 
   // Tenta config salva primeiro, senão usa a embutida
   const savedCfg = localStorage.getItem(cfgKey);
@@ -1745,6 +1751,21 @@ function enviarPedido() {
 
   db.ref().update(updates).then(() => {
     toast('✅ Pedido enviado para a cozinha!', 'success');
+    // Imprimir comanda automaticamente
+    const mesa = dadosMesas[mesaAtual];
+    const linhas = [];
+    linhas.push(`Mesa: ${mesa.num}${mesa.label ? ' — ' + mesa.label : ''}`);
+    linhas.push(`Garcom: ${garcom || '—'}`);
+    linhas.push(`Hora: ${new Date().toLocaleTimeString('pt-BR')}`);
+    linhas.push('--------------------------------');
+    linhas.push('*** PEDIDO COZINHA ***');
+    carrinhoAtual.forEach(it => {
+      linhas.push(`${it.qty}x ${it.nome}`);
+      if (it.obs) linhas.push(`   >> ${it.obs}`);
+    });
+    if (obs) linhas.push('--------------------------------');
+    if (obs) linhas.push(`OBS: ${obs}`);
+    printViaRawBT(buildTicket(linhas));
     fecharModal('modal-pedido');
     carrinhoAtual = [];
   });
@@ -2074,6 +2095,7 @@ function salvarConfigImpressao() {
     header: document.getElementById('cfg-header').value,
     footer: document.getElementById('cfg-footer').value,
     width: document.getElementById('cfg-printer-width').value,
+    printerIp: document.getElementById('cfg-printer-ip').value.trim(),
   };
   localStorage.setItem(impCfgKey, JSON.stringify(cfg));
   toast('✅ Configurações salvas!', 'success');
@@ -2106,16 +2128,68 @@ function buildTicket(lines) {
   return txt;
 }
 
-function printViaRawBT(conteudo) {
-  // Codifica em base64
+// ============================================================
+// IMPRESSÃO VIA REDE Wi-Fi (Server for RawBT - porta 9100)
+// ============================================================
+function getPrinterIP() {
+  const cfg = JSON.parse(localStorage.getItem(impCfgKey) || '{}');
+  return cfg.printerIp || '192.168.0.119';
+}
+
+async function printViaRede(conteudo) {
+  const ip = getPrinterIP();
+  const url = `http://${ip}:9100`;
+  try {
+    // Envia os bytes ESC/P via fetch para o Server for RawBT
+    const bytes = new TextEncoder().encode(conteudo);
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: bytes
+    });
+    if (resp.ok) {
+      toast('✅ Impresso!', 'success');
+    } else {
+      throw new Error('Resposta: ' + resp.status);
+    }
+  } catch(e) {
+    // Fallback: tenta via WebSocket na porta 9100 do Server for RawBT
+    printViaWebSocket(conteudo, ip);
+  }
+}
+
+function printViaWebSocket(conteudo, ip) {
+  try {
+    const ws = new WebSocket(`ws://${ip}:40213`);
+    ws.onopen = () => {
+      // Server for RawBT aceita base64 via websocket
+      const b64 = btoa(unescape(encodeURIComponent(conteudo)));
+      ws.send(JSON.stringify({ type: 'print', data: b64, encoding: 'base64' }));
+      setTimeout(() => ws.close(), 1000);
+      toast('✅ Impresso!', 'success');
+    };
+    ws.onerror = () => {
+      // Último recurso: intent Android
+      printViaIntent(conteudo);
+    };
+  } catch(e) {
+    printViaIntent(conteudo);
+  }
+}
+
+function printViaIntent(conteudo) {
   const b64 = btoa(unescape(encodeURIComponent(conteudo)));
   const rawbtUrl = 'rawbt:base64,' + b64;
-  // Intent scheme para Android Chrome
   const intentUrl = 'intent:' + encodeURI(rawbtUrl)
     + '#Intent;'
     + 'component=ru.a402d.rawbtprinter.activity.PrintDownloadActivity;'
     + 'package=ru.a402d.rawbtprinter;end;';
   window.location = intentUrl;
+}
+
+// Função principal — tenta rede primeiro, cai para intent se falhar
+function printViaRawBT(conteudo) {
+  printViaRede(conteudo);
 }
 
 function imprimirComanda() {
