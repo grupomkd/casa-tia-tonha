@@ -1269,23 +1269,20 @@
 <div class="modal-overlay" id="modal-nova-mesa">
   <div class="modal modal-center">
     <div class="modal-header">
-      <h2>Nova Mesa / Comanda</h2>
+      <h2>Nova Comanda</h2>
       <button class="modal-close" onclick="fecharModal('modal-nova-mesa')">✕</button>
     </div>
     <div class="modal-body">
       <div class="form-group">
-        <label class="form-label">Número da mesa</label>
-        <input type="number" class="form-input" id="nova-mesa-num" placeholder="Ex: 1" min="1">
+        <label class="form-label">Nome do cliente</label>
+        <input class="form-input" id="nova-mesa-id" placeholder="Ex: João, Mesa 3, Delivery..." autofocus>
       </div>
-      <div class="form-group">
-        <label class="form-label">Identificação (opcional)</label>
-        <input class="form-input" id="nova-mesa-id" placeholder="Ex: Varanda, Balcão, Delivery...">
-      </div>
+      <input type="hidden" id="nova-mesa-num" value="0">
       <div class="form-group">
         <label class="form-label">Garçom</label>
         <select class="form-input" id="nova-mesa-garcom"></select>
       </div>
-      <button class="btn btn-primary btn-block btn-lg" onclick="criarMesa()">🍽️ Abrir Mesa</button>
+      <button class="btn btn-primary btn-block btn-lg" onclick="criarMesa()">🍽️ Abrir Comanda</button>
     </div>
   </div>
 </div>
@@ -1580,13 +1577,14 @@ function renderMesas() {
     return;
   }
 
-  const sorted = mesas.sort((a,b) => (a.num||0) - (b.num||0));
+  const sorted = mesas.sort((a,b) => (a.abertura||0) - (b.abertura||0));
   grid.innerHTML = sorted.map(m => {
     const total = calcTotalMesa(m);
     const status = m.status || 'livre';
+    const nome = m.label || ('#' + m.num);
     return `
       <div class="mesa-card ${status}" onclick="abrirMesa('${m.id}')">
-        <div class="mesa-num">${m.num}${m.label ? '<br><span style="font-size:11px;font-weight:600">' + m.label + '</span>' : ''}</div>
+        <div class="mesa-num" style="font-size:18px">${nome}</div>
         <div class="mesa-status ${status}">${status === 'livre' ? 'Livre' : status === 'ocupada' ? 'Em Pedido' : 'Aguardando'}</div>
         ${total > 0 ? `<div class="mesa-total">${fmt(total)}</div>` : ''}
         ${m.garcom ? `<div class="mesa-garcom">${m.garcom}</div>` : ''}
@@ -1596,29 +1594,28 @@ function renderMesas() {
 
 function abrirModalNovaMesa() {
   renderSelectsGarcon('nova-mesa-garcom');
-  // Sugerir próximo número livre
-  const nums = Object.values(dadosMesas).map(m => m.num).filter(Boolean);
-  let next = 1;
-  while(nums.includes(next)) next++;
-  document.getElementById('nova-mesa-num').value = next;
   document.getElementById('nova-mesa-id').value = '';
   abrirModal('modal-nova-mesa');
+  setTimeout(() => document.getElementById('nova-mesa-id').focus(), 300);
 }
 
 function criarMesa() {
-  const num = parseInt(document.getElementById('nova-mesa-num').value);
   const label = document.getElementById('nova-mesa-id').value.trim();
   const garcom = document.getElementById('nova-mesa-garcom').value;
-  if (!num) { toast('Informe o número da mesa', 'error'); return; }
+  if (!label) { toast('Informe o nome do cliente', 'error'); return; }
 
-  const id = 'mesa_' + num;
+  // Gera número sequencial automático
+  const nums = Object.values(dadosMesas).map(m => m.num).filter(Boolean);
+  let num = 1; while(nums.includes(num)) num++;
+
+  const id = 'mesa_' + uid();
   db.ref('mesas/' + id).set({
     id, num, label, garcom,
     status: 'livre',
     abertura: Date.now()
   });
   fecharModal('modal-nova-mesa');
-  toast(`Mesa ${num} criada!`, 'success');
+  toast(`Comanda de ${label} aberta!`, 'success');
 }
 
 function abrirMesa(mesaId) {
@@ -1627,7 +1624,7 @@ function abrirMesa(mesaId) {
   if (!mesa) return;
 
   carrinhoAtual = [];
-  document.getElementById('modal-pedido-titulo').textContent = `Mesa ${mesa.num}${mesa.label ? ' — ' + mesa.label : ''}`;
+  document.getElementById('modal-pedido-titulo').textContent = `${mesa.label || ('Mesa ' + mesa.num)}`;
   document.getElementById('modal-pedido-sub').textContent = mesa.garcom ? `Garçom: ${mesa.garcom}` : 'Selecione o garçom';
   document.getElementById('pedido-obs').value = '';
 
@@ -1804,7 +1801,7 @@ function renderCozinha() {
       <div class="coz-card ${status}" id="coz-${pedido.id}">
         <div class="coz-header">
           <div>
-            <div class="coz-mesa">Mesa ${mesa.num}${mesa.label ? ' — ' + mesa.label : ''}</div>
+            <div class="coz-mesa">${mesa.label || ('Mesa ' + mesa.num)}</div>
             <div class="coz-garcom">${mesa.garcom || ''} · ${new Date(pedido.hora).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
             ${pedido.obs ? `<div style="font-size:11px;color:var(--laranja);margin-top:2px">📝 ${pedido.obs}</div>` : ''}
           </div>
@@ -1827,6 +1824,7 @@ function renderCozinha() {
             : `<button class="btn btn-primary btn-sm" onclick="marcarProducao('${mesa.id}','${pedido.id}')">🔥 Em Produção</button>`
           }
           <button class="btn btn-secondary btn-sm" onclick="abrirMesa('${mesa.id}')">+ Item</button>
+          <button class="btn btn-danger btn-sm" onclick="removerPedido('${mesa.id}','${pedido.id}')" title="Remover pedido">🗑️</button>
         </div>
       </div>`;
     }).join('');
@@ -1860,6 +1858,22 @@ function marcarProducao(mesaId, pedidoId) {
   db.ref(`mesas/${mesaId}/status`).set('ocupada');
 }
 
+function removerPedido(mesaId, pedidoId) {
+  if (!confirm('Remover este pedido?')) return;
+  db.ref(`mesas/${mesaId}/pedidos/${pedidoId}`).remove().then(() => {
+    // Se não tiver mais pedidos, libera a mesa
+    const mesa = dadosMesas[mesaId];
+    if (mesa && mesa.pedidos) {
+      const restantes = Object.keys(mesa.pedidos).filter(k => k !== pedidoId);
+      if (!restantes.length) {
+        db.ref(`mesas/${mesaId}/status`).set('livre');
+        db.ref(`mesas/${mesaId}/pedidos`).remove();
+      }
+    }
+    toast('Pedido removido', 'success');
+  });
+}
+
 function marcarEntregue(mesaId, pedidoId) {
   db.ref(`mesas/${mesaId}/pedidos/${pedidoId}/status`).set('entregue');
   // Checar se todos pedidos foram entregues
@@ -1888,7 +1902,7 @@ function renderCaixaMesas() {
     const total = calcTotalMesa(m);
     return `
       <div class="caixa-mesa-item ${caixaMesaSelecionada === m.id ? 'selected' : ''}" onclick="selecionarMesaCaixa('${m.id}')">
-        <div class="caixa-mesa-num">Mesa ${m.num}</div>
+        <div class="caixa-mesa-num" style="font-size:15px">${m.label || ('Mesa ' + m.num)}</div>
         <div class="caixa-mesa-val">${fmt(total)}</div>
         <div class="caixa-mesa-grc">${m.garcom || ''}</div>
       </div>`;
@@ -1920,7 +1934,7 @@ function abrirContaMesa(mesaId) {
   const mesa = dadosMesas[mesaId];
   if (!mesa) return;
 
-  document.getElementById('caixa-mesa-titulo').textContent = `Mesa ${mesa.num}${mesa.label ? ' — ' + mesa.label : ''}`;
+  document.getElementById('caixa-mesa-titulo').textContent = `${mesa.label || ('Mesa ' + mesa.num)}`;
   document.getElementById('caixa-mesa-garcom').textContent = mesa.garcom || '';
 
   // Montar lista de itens
@@ -2269,7 +2283,7 @@ function renderHistorico() {
   el.innerHTML = items.map(i => `
     <div class="hist-item">
       <div class="hist-info">
-        <div class="hist-mesa">Mesa ${i.mesaNum}${i.mesaLabel ? ' — ' + i.mesaLabel : ''}</div>
+        <div class="hist-mesa">${i.mesaLabel || ('Mesa ' + i.mesaNum)}</div>
         <div class="hist-hora">${new Date(i.hora).toLocaleTimeString('pt-BR')}</div>
         <div class="hist-garcom">👤 ${i.garcom || '—'}</div>
       </div>
