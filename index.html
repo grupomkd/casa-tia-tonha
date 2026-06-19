@@ -2129,7 +2129,7 @@ function buildTicket(lines) {
 }
 
 // ============================================================
-// IMPRESSÃO VIA REDE Wi-Fi (Server for RawBT - WebSocket 40213)
+// IMPRESSÃO VIA REDE Wi-Fi (Server for RawBT - porta 9100 no-cors)
 // ============================================================
 function getPrinterIP() {
   const cfg = JSON.parse(localStorage.getItem(impCfgKey) || '{}');
@@ -2138,37 +2138,25 @@ function getPrinterIP() {
 
 function printViaRawBT(conteudo) {
   const ip = getPrinterIP();
-  // Converte string ESC/P para Uint8Array (bytes latin1)
+
+  // Converte string ESC/P para Blob binário (bytes latin1)
   const buf = new Uint8Array(conteudo.length);
   for (let i = 0; i < conteudo.length; i++) {
     buf[i] = conteudo.charCodeAt(i) & 0xFF;
   }
+  const blob = new Blob([buf], { type: 'application/octet-stream' });
 
-  // Server for RawBT aceita conexão WebSocket na porta 40213
-  // e recebe os bytes binários diretamente
-  try {
-    const ws = new WebSocket('ws://' + ip + ':40213');
-    ws.binaryType = 'arraybuffer';
-
-    ws.onopen = () => {
-      ws.send(buf.buffer);
-      setTimeout(() => { try { ws.close(); } catch(e){} }, 2000);
-      toast('✅ Comanda impressa!', 'success');
-    };
-
-    ws.onerror = () => {
-      toast('⚠️ Sem conexão com a impressora. Verifique o Server for RawBT.', 'error');
-    };
-
-    ws.onclose = (e) => {
-      if (e.code !== 1000 && e.code !== 1005) {
-        toast('⚠️ Impressora desconectou: ' + e.code, 'error');
-      }
-    };
-
-  } catch(e) {
-    toast('⚠️ Erro ao imprimir: ' + e.message, 'error');
-  }
+  // no-cors ignora bloqueio HTTPS→HTTP e não espera resposta
+  // O Server for RawBT recebe os bytes e imprime mesmo sem responder
+  fetch('http://' + ip + ':9100', {
+    method: 'POST',
+    mode: 'no-cors',
+    body: blob
+  }).then(() => {
+    toast('✅ Comanda enviada para impressora!', 'success');
+  }).catch(() => {
+    toast('⚠️ Verifique se o Server for RawBT está ativo no celular', 'error');
+  });
 }
 
 function imprimirComanda() {
