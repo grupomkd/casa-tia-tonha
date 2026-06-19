@@ -256,6 +256,23 @@
     margin-top: 2px;
   }
 
+  .mesa-del-btn {
+    position: absolute;
+    top: 6px; right: 6px;
+    background: rgba(211,47,47,0.12);
+    border: none;
+    color: var(--vermelho);
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    font-size: 11px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .mesa-card:hover .mesa-del-btn { opacity: 1; }
+
   /* ===== MODAL ===== */
   .modal-overlay {
     display: none;
@@ -1584,6 +1601,7 @@ function renderMesas() {
     const nome = m.label || ('#' + m.num);
     return `
       <div class="mesa-card ${status}" onclick="abrirMesa('${m.id}')">
+        <button class="mesa-del-btn" onclick="event.stopPropagation();deletarComanda('${m.id}','${nome}')" title="Remover">✕</button>
         <div class="mesa-num" style="font-size:18px">${nome}</div>
         <div class="mesa-status ${status}">${status === 'livre' ? 'Livre' : status === 'ocupada' ? 'Em Pedido' : 'Aguardando'}</div>
         ${total > 0 ? `<div class="mesa-total">${fmt(total)}</div>` : ''}
@@ -1856,6 +1874,13 @@ function toggleItemFeito(mesaId, pedidoId, itemId, val) {
 function marcarProducao(mesaId, pedidoId) {
   db.ref(`mesas/${mesaId}/pedidos/${pedidoId}/status`).set('producao');
   db.ref(`mesas/${mesaId}/status`).set('ocupada');
+}
+
+function deletarComanda(mesaId, nome) {
+  if (!confirm(`Remover a comanda "${nome}"? Esta ação não pode ser desfeita.`)) return;
+  db.ref('mesas/' + mesaId).remove().then(() => {
+    toast('Comanda removida!', 'success');
+  });
 }
 
 function removerPedido(mesaId, pedidoId) {
