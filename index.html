@@ -1296,6 +1296,14 @@
       </div>
       <input type="hidden" id="nova-mesa-num" value="0">
       <div class="form-group">
+        <label class="form-label">Endereço (opcional)</label>
+        <input class="form-input" id="nova-mesa-endereco" placeholder="Ex: Rua das Flores, 123 — Apto 2">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Código iFood (opcional)</label>
+        <input class="form-input" id="nova-mesa-ifood" placeholder="Ex: #ABC-123">
+      </div>
+      <div class="form-group">
         <label class="form-label">Garçom</label>
         <select class="form-input" id="nova-mesa-garcom"></select>
       </div>
@@ -1603,9 +1611,11 @@ function renderMesas() {
       <div class="mesa-card ${status}" onclick="abrirMesa('${m.id}')">
         <button class="mesa-del-btn" onclick="event.stopPropagation();deletarComanda('${m.id}','${nome}')" title="Remover">✕</button>
         <div class="mesa-num" style="font-size:18px">${nome}</div>
+        ${m.ifood ? `<div style="font-size:10px;color:#EA1D2C;font-weight:700;margin-top:2px">🛵 ${m.ifood}</div>` : ''}
         <div class="mesa-status ${status}">${status === 'livre' ? 'Livre' : status === 'ocupada' ? 'Em Pedido' : 'Aguardando'}</div>
         ${total > 0 ? `<div class="mesa-total">${fmt(total)}</div>` : ''}
         ${m.garcom ? `<div class="mesa-garcom">${m.garcom}</div>` : ''}
+        ${m.endereco ? `<div class="mesa-garcom" style="font-size:9px">📍 ${m.endereco}</div>` : ''}
       </div>`;
   }).join('');
 }
@@ -1613,26 +1623,32 @@ function renderMesas() {
 function abrirModalNovaMesa() {
   renderSelectsGarcon('nova-mesa-garcom');
   document.getElementById('nova-mesa-id').value = '';
+  document.getElementById('nova-mesa-endereco').value = '';
+  document.getElementById('nova-mesa-ifood').value = '';
   abrirModal('modal-nova-mesa');
   setTimeout(() => document.getElementById('nova-mesa-id').focus(), 300);
 }
 
 function criarMesa() {
   const label = document.getElementById('nova-mesa-id').value.trim();
+  const endereco = document.getElementById('nova-mesa-endereco').value.trim();
+  const ifood = document.getElementById('nova-mesa-ifood').value.trim();
   const garcom = document.getElementById('nova-mesa-garcom').value;
   if (!label) { toast('Informe o nome do cliente', 'error'); return; }
 
-  // Gera número sequencial automático
   const nums = Object.values(dadosMesas).map(m => m.num).filter(Boolean);
   let num = 1; while(nums.includes(num)) num++;
 
   const id = 'mesa_' + uid();
   db.ref('mesas/' + id).set({
-    id, num, label, garcom,
+    id, num, label, endereco, ifood, garcom,
     status: 'livre',
     abertura: Date.now()
   });
   fecharModal('modal-nova-mesa');
+  // Limpar campos
+  document.getElementById('nova-mesa-endereco').value = '';
+  document.getElementById('nova-mesa-ifood').value = '';
   toast(`Comanda de ${label} aberta!`, 'success');
 }
 
@@ -1821,6 +1837,8 @@ function renderCozinha() {
           <div>
             <div class="coz-mesa">${mesa.label || ('Mesa ' + mesa.num)}</div>
             <div class="coz-garcom">${mesa.garcom || ''} · ${new Date(pedido.hora).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
+            ${mesa.ifood ? `<div style="font-size:11px;color:#EA1D2C;font-weight:700">🛵 ${mesa.ifood}</div>` : ''}
+            ${mesa.endereco ? `<div style="font-size:11px;color:var(--texto-suave)">📍 ${mesa.endereco}</div>` : ''}
             ${pedido.obs ? `<div style="font-size:11px;color:var(--laranja);margin-top:2px">📝 ${pedido.obs}</div>` : ''}
           </div>
           <div class="coz-timer ${diffMin >= 20 ? 'urgente' : ''}" id="timer-${pedido.id}" data-hora="${pedido.hora}">${formatarTempo(Date.now() - pedido.hora)}</div>
@@ -2242,7 +2260,9 @@ function imprimirNota() {
   });
 
   const linhas = [];
-  linhas.push(`Mesa: ${mesa.num}${mesa.label ? ' — ' + mesa.label : ''}`);
+  linhas.push(`Cliente: ${mesa.label || ('#' + mesa.num)}`);
+  if (mesa.ifood) linhas.push(`iFood: ${mesa.ifood}`);
+  if (mesa.endereco) linhas.push(`Endereco: ${mesa.endereco}`);
   linhas.push(`Garcom: ${mesa.garcom || '—'}`);
   linhas.push(`Data: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}`);
   linhas.push('--------------------------------');
