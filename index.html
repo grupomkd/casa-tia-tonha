@@ -2261,14 +2261,16 @@ function imprimirNota() {
   const mesa = dadosMesas[caixaMesaSelecionada];
   if (!mesa) return;
 
-  const total = parseFloat(document.getElementById('r-total').textContent.replace('R$ ','').replace(',','.')) || 0;
+  const total    = parseFloat(document.getElementById('r-total').textContent.replace('R$ ','').replace(',','.')) || 0;
+  const subtotal = parseFloat(document.getElementById('r-subtotal').textContent.replace('R$ ','').replace(',','.')) || 0;
+  const recebido = parseFloat(document.getElementById('val-recebido').value) || 0;
+
   const todos = [];
   Object.values(mesa.pedidos || {}).forEach(p => {
     Object.values(p.itens || {}).forEach(it => todos.push(it));
   });
   _lojinhaExtras.forEach(ex => todos.push({...ex, qty: 1}));
 
-  // Agrupar
   const agrupados = {};
   todos.forEach(it => {
     const k = it.nome + '_' + it.preco;
@@ -2276,34 +2278,19 @@ function imprimirNota() {
     agrupados[k].qty += it.qty;
   });
 
-  const linhas = [];
-  linhas.push(`Cliente: ${mesa.label || ('#' + mesa.num)}`);
-  if (mesa.ifood) linhas.push(`iFood: ${mesa.ifood}`);
-  if (mesa.endereco) linhas.push(`Endereco: ${mesa.endereco}`);
-  linhas.push(`Garcom: ${mesa.garcom || '—'}`);
-  linhas.push(`Data: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}`);
-  linhas.push('--------------------------------');
-  Object.values(agrupados).forEach(it => {
-    linhas.push(`${it.qty}x ${it.nome}`.padEnd(24) + fmt(it.preco * it.qty));
-  });
-  linhas.push('--------------------------------');
-
-  const subtotal = parseFloat(document.getElementById('r-subtotal').textContent.replace('R$ ','').replace(',','.')) || 0;
-  const desconto = subtotal - total;
-  if (desconto > 0) {
-    linhas.push('Subtotal:'.padEnd(24) + fmt(subtotal));
-    linhas.push('Desconto:'.padEnd(24) + '- ' + fmt(desconto));
-  }
-  linhas.push('TOTAL:'.padEnd(24) + fmt(total));
-  linhas.push(`Pagamento: ${pgtoSelecionado || '—'}`);
-
-  const recebido = parseFloat(document.getElementById('val-recebido').value) || 0;
-  if (pgtoSelecionado === 'dinheiro' && recebido > 0) {
-    linhas.push('Recebido:'.padEnd(24) + fmt(recebido));
-    linhas.push('Troco:'.padEnd(24) + fmt(Math.max(0, recebido - total)));
-  }
-
-  printViaRawBT(buildTicket(linhas));
+  const job = {
+    tipo: 'nota',
+    cliente: mesa.label || ('#' + mesa.num),
+    ifood: mesa.ifood || '',
+    endereco: mesa.endereco || '',
+    garcom: mesa.garcom || '',
+    data: new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR'),
+    itens: Object.values(agrupados).map(it => ({ nome: it.nome, qty: it.qty, preco: it.preco })),
+    subtotal, total, desconto: subtotal - total,
+    pgto: pgtoSelecionado || '',
+    recebido, troco: Math.max(0, recebido - total)
+  };
+  printViaRawBT(job);
 }
 
 // ============================================================
