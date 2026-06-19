@@ -2129,67 +2129,46 @@ function buildTicket(lines) {
 }
 
 // ============================================================
-// IMPRESSÃO VIA REDE Wi-Fi (Server for RawBT - porta 9100)
+// IMPRESSÃO VIA REDE Wi-Fi (Server for RawBT - WebSocket 40213)
 // ============================================================
 function getPrinterIP() {
   const cfg = JSON.parse(localStorage.getItem(impCfgKey) || '{}');
   return cfg.printerIp || '192.168.0.119';
 }
 
-async function printViaRede(conteudo) {
-  const ip = getPrinterIP();
-  const url = `http://${ip}:9100`;
-  try {
-    // Envia os bytes ESC/P via fetch para o Server for RawBT
-    const bytes = new TextEncoder().encode(conteudo);
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: bytes
-    });
-    if (resp.ok) {
-      toast('✅ Impresso!', 'success');
-    } else {
-      throw new Error('Resposta: ' + resp.status);
-    }
-  } catch(e) {
-    // Fallback: tenta via WebSocket na porta 9100 do Server for RawBT
-    printViaWebSocket(conteudo, ip);
-  }
-}
-
-function printViaWebSocket(conteudo, ip) {
-  try {
-    const ws = new WebSocket(`ws://${ip}:40213`);
-    ws.onopen = () => {
-      // Server for RawBT aceita base64 via websocket
-      const b64 = btoa(unescape(encodeURIComponent(conteudo)));
-      ws.send(JSON.stringify({ type: 'print', data: b64, encoding: 'base64' }));
-      setTimeout(() => ws.close(), 1000);
-      toast('✅ Impresso!', 'success');
-    };
-    ws.onerror = () => {
-      // Último recurso: intent Android
-      printViaIntent(conteudo);
-    };
-  } catch(e) {
-    printViaIntent(conteudo);
-  }
-}
-
-function printViaIntent(conteudo) {
-  const b64 = btoa(unescape(encodeURIComponent(conteudo)));
-  const rawbtUrl = 'rawbt:base64,' + b64;
-  const intentUrl = 'intent:' + encodeURI(rawbtUrl)
-    + '#Intent;'
-    + 'component=ru.a402d.rawbtprinter.activity.PrintDownloadActivity;'
-    + 'package=ru.a402d.rawbtprinter;end;';
-  window.location = intentUrl;
-}
-
-// Função principal — tenta rede primeiro, cai para intent se falhar
 function printViaRawBT(conteudo) {
-  printViaRede(conteudo);
+  const ip = getPrinterIP();
+  // Converte string ESC/P para Uint8Array (bytes latin1)
+  const buf = new Uint8Array(conteudo.length);
+  for (let i = 0; i < conteudo.length; i++) {
+    buf[i] = conteudo.charCodeAt(i) & 0xFF;
+  }
+
+  // Server for RawBT aceita conexão WebSocket na porta 40213
+  // e recebe os bytes binários diretamente
+  try {
+    const ws = new WebSocket('ws://' + ip + ':40213');
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      ws.send(buf.buffer);
+      setTimeout(() => { try { ws.close(); } catch(e){} }, 2000);
+      toast('✅ Comanda impressa!', 'success');
+    };
+
+    ws.onerror = () => {
+      toast('⚠️ Sem conexão com a impressora. Verifique o Server for RawBT.', 'error');
+    };
+
+    ws.onclose = (e) => {
+      if (e.code !== 1000 && e.code !== 1005) {
+        toast('⚠️ Impressora desconectou: ' + e.code, 'error');
+      }
+    };
+
+  } catch(e) {
+    toast('⚠️ Erro ao imprimir: ' + e.message, 'error');
+  }
 }
 
 function imprimirComanda() {
