@@ -1809,21 +1809,18 @@ function enviarPedido() {
 
   db.ref().update(updates).then(() => {
     toast('✅ Pedido enviado para a cozinha!', 'success');
-    // Imprimir comanda automaticamente
-    const mesa = dadosMesas[mesaAtual];
-    const linhas = [];
-    linhas.push(`Mesa: ${mesa.num}${mesa.label ? ' — ' + mesa.label : ''}`);
-    linhas.push(`Garcom: ${garcom || '—'}`);
-    linhas.push(`Hora: ${new Date().toLocaleTimeString('pt-BR')}`);
-    linhas.push('--------------------------------');
-    linhas.push('*** PEDIDO COZINHA ***');
-    carrinhoAtual.forEach(it => {
-      linhas.push(`${it.qty}x ${it.nome}`);
-      if (it.obs) linhas.push(`   >> ${it.obs}`);
+    // Imprimir via fila Firebase → agente Python → RawBT
+    const mesaP = dadosMesas[mesaAtual] || {};
+    printViaRawBT({
+      tipo: 'comanda',
+      cliente: mesaP.label || ('#' + mesaP.num),
+      ifood: ifood || mesaP.ifood || '',
+      endereco: endereco || mesaP.endereco || '',
+      garcom: garcom || '',
+      hora: new Date().toLocaleTimeString('pt-BR'),
+      obs_geral: obs,
+      itens: carrinhoAtual.map(it => ({ nome: it.nome, qty: it.qty, preco: it.preco, obs: it.obs || '' }))
     });
-    if (obs) linhas.push('--------------------------------');
-    if (obs) linhas.push(`OBS: ${obs}`);
-    printViaRawBT(buildTicket(linhas));
     fecharModal('modal-pedido');
     carrinhoAtual = [];
   });
@@ -2210,50 +2207,34 @@ function getPrinterIP() {
   return cfg.printerIp || '192.168.0.119';
 }
 
-function printViaRawBT(conteudo) {
-  const ip = getPrinterIP();
-
-  // Converte string ESC/P para Blob binário (bytes latin1)
-  const buf = new Uint8Array(conteudo.length);
-  for (let i = 0; i < conteudo.length; i++) {
-    buf[i] = conteudo.charCodeAt(i) & 0xFF;
-  }
-  const blob = new Blob([buf], { type: 'application/octet-stream' });
-
-  // no-cors ignora bloqueio HTTPS→HTTP e não espera resposta
-  // O Server for RawBT recebe os bytes e imprime mesmo sem responder
-  fetch('http://' + ip + ':9100', {
-    method: 'POST',
-    mode: 'no-cors',
-    body: blob
-  }).then(() => {
-    toast('✅ Comanda enviada para impressora!', 'success');
-  }).catch(() => {
-    toast('⚠️ Verifique se o Server for RawBT está ativo no celular', 'error');
+// Grava job na fila do Firebase — agente Python lê e imprime
+function printViaRawBT(job) {
+  if (!db) { toast('⚠️ Firebase não conectado', 'error'); return; }
+  const jobId = uid();
+  job.timestamp = Date.now();
+  job.tentativas = 0;
+  db.ref('fila_impressao/' + jobId).set(job).then(() => {
+    toast('🖨️ Comanda na fila de impressão!', 'success');
+  }).catch(e => {
+    toast('⚠️ Erro ao enfileirar: ' + e.message, 'error');
   });
 }
 
 function imprimirComanda() {
   const mesa = dadosMesas[mesaAtual];
   if (!mesa) return;
-  const linhas = [];
-  linhas.push(`Mesa: ${mesa.num}${mesa.label ? ' — ' + mesa.label : ''}`);
-  linhas.push(`Garcom: ${mesa.garcom || '—'}`);
-  linhas.push(`Hora: ${new Date().toLocaleTimeString('pt-BR')}`);
-  linhas.push('--------------------------------');
-  linhas.push('PEDIDO:');
-  carrinhoAtual.forEach(it => {
-    linhas.push(`${it.qty}x ${it.nome}`);
-    linhas.push(`   ${fmt(it.preco)} = ${fmt(it.preco * it.qty)}`);
-    if (it.obs) linhas.push(`   Obs: ${it.obs}`);
-  });
-  const total = carrinhoAtual.reduce((s,it) => s + it.preco * it.qty, 0);
-  linhas.push('--------------------------------');
-  linhas.push(`TOTAL: ${fmt(total)}`);
   const obs = document.getElementById('pedido-obs').value.trim();
-  if (obs) linhas.push(`OBS GERAL: ${obs}`);
-
-  printViaRawBT(buildTicket(linhas));
+  const garcom = document.getElementById('pedido-garcom-select').value;
+  printViaRawBT({
+    tipo: 'comanda',
+    cliente: mesa.label || ('#' + mesa.num),
+    ifood: mesa.ifood || '',
+    endereco: mesa.endereco || '',
+    garcom: garcom || mesa.garcom || '',
+    hora: new Date().toLocaleTimeString('pt-BR'),
+    obs_geral: obs,
+    itens: carrinhoAtual.map(it => ({ nome: it.nome, qty: it.qty, preco: it.preco, obs: it.obs || '' }))
+  });
 }
 
 function imprimirNota() {
